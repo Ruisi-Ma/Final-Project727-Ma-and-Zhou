@@ -1,0 +1,431 @@
+---
+title: "SURVMETH 727 Final Project \\break Economic Disparities Among the U.S. States \\break  in 2023: An Analysis of Regional Data \\break from the Bureau of Economic Analysis"
+author: "Ruis Ma and Zhenjing Zhou"
+format: pdf
+editor: visual
+encoding: UTF-8
+fontsize: 10pt
+latex_engine: xelatex
+options: ["geometry: top=0.3in, bottom=0in, left=0.1in, right=0.1in"]
+header-includes:
+  - \usepackage{float}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+knitr::opts_chunk$set(echo = FALSE, 
+                       results = "hide",
+                       warning = FALSE,
+                      message = FALSE
+                       )                    
+     
+```
+
+```{r, message=FALSE, warning=FALSE}
+library(bea.R)
+```
+
+```{r}
+beaKey 	<- 'YF3AAE0AA-870B-4224-B205-C7CF600CB094'
+```
+
+**Github Link:** <https://github.com/Ruisi-Ma/Final-Project727-Ma-and-Zhou.git>
+
+## Introduction
+
+Economic disparities across the U.S. states have long been a focal point for policymakers, economists, and researchers. These disparities highlight the uneven distribution of wealth and economic opportunities within a nation. This project aims to investigate regional economic disparities among the U.S. states in 2023, providing a comprehensive analysis of key economic indicators to better understand the factors driving these differences. By leveraging data from the Bureau of Economic Analysis (BEA) Regional Dataset, this study examines disparities through five key economic indicators: `PerCap personal income`, `PerCap Real GDP`, `PerCap gross operating surplus`, `PerCap Personal Consumption Expenditures`(PCE), and `Employment PerThousand`. These indicators offer a multi-dimensional view of economic performance, consumption behavior, and employment trends across the fifty states.\newline
+
+The paper explores how these indicators vary across the states, identifies patterns of economic clustering, and examines the role of geographic proximity in shaping the economic disparities. To achieve this, we employ various analytical approaches, including simple linear regression to assess the relationships between `Employment PerThousand` and `PerCap personal income`, as well as between `PerCap Real GDP` and `PerCap PCE`. Additionally, we conduct multiple linear regression (MLR) to model `PerCap personal income` using the other key indicators as predictors. Finally, hierarchical clustering is applied to classify states into six clusters based on significant predictors, enabling a visual and conceptual understanding of economic disparities across regions. Through these analyses, we aim to uncover meaningful relationships among these indicators and provide insights into the broader question of how economic disparity manifests geographically within the United States.\newline
+
+\newpage
+
+## Data Set Description
+
+This dataset is sourced from the Bureau of Economic Analysis (BEA) via the BEA API and is processed using the bea.R package. The dataset is complied from three key BEA tables: SAINC30 (Economic Profile), SAGDP1 (GDP by State Summary), and SAPCE2 (PCE by Major Types of Product). The extracted data were cleaned, calculated, and merged into a comprehensive dataset containing 50 rows and 22 columns. Each row represents a U.S. state, while each column represents a distinct economic indicator. \newline
+
+The key variables of interest are the numerical variables `PerCap personal income`, `PerCap Real GDP`, `PerCap gross operating surplus`, `PerCap Personal Consumption Expenditures`(PCE), and `Employment PerThousand`. `PerCap personal income` is the per capita income measured in current U.S. dollars. `PerCap Real GDP` represents the real gross domestic product per capita, adjusted for inflation. `PerCap gross operating surplus` refers to the per capita measure of the returns to capital within each state. PCE quantifies personal consumption expenditures per capita, while `Employment PerThousand` denotes the number of employed individuals per 1,000 residents. In addition, categorical variables such as `State`, `Name`, and `Region` are used to distinguish states and their geographic regions.\newline
+
+This dataset is observational, meaning causal inferences cannot be made from the analysis. However, associations, patterns, and groupings among states can be explored. Of particular interest is how economic indicators vary across regions and how they relate to one another. The inclusion of hierarchical clustering provides insight into the grouping of states with similar economic characteristics, further illuminating the role of geographic proximity in regional economic disparities.\newline
+
+```{r}
+perc_income <- list(
+	'UserID' = 'F3AAE0AA-870B-4224-B205-C7CF600CB094' ,
+	'Method' = 'GetData',
+	'datasetname' = 'Regional',
+	'TableName' = 'SAINC30',
+	'LineCode' = '110',
+	'GeoFips' = 'STATE',
+	'Year'='last5'
+)
+```
+
+```{r, message=FALSE, warning=FALSE}
+#personal income data from last 5 years(we can get other timeseries data)
+percap_income <- beaGet(perc_income)
+suppressPackageStartupMessages(library(dplyr))
+percap_income <- percap_income %>%
+  select(GeoFips, GeoName, DataValue_2019, DataValue_2020, 
+         DataValue_2021, DataValue_2022, DataValue_2023)
+```
+
+```{r, message=FALSE, warning=FALSE}
+econpro_list <- list() 
+for (line_code in c(100,110,130,140,150,160,170,202,240,250,300)) {
+  econpro <- list(
+    'UserID' = 'F3AAE0AA-870B-4224-B205-C7CF600CB094',
+    'Method' = 'GetData',
+    'datasetname' = 'Regional',
+    'TableName' = 'SAINC30',
+    'LineCode' = line_code,
+    'GeoFips' = 'STATE',
+    'Year' = '2023'
+  )
+  econ_data <- beaGet(econpro)
+  econ_data <- econ_data %>%
+    select(GeoFips, GeoName, DataValue_2023) %>%
+    rename(!!paste0("DataValue_2023_", line_code) := DataValue_2023)
+  econpro_list[[as.character(line_code)]] <- econ_data
+}
+```
+
+```{r}
+merged_data <- Reduce(function(x, y) full_join(x, y, by = c("GeoFips", 
+              "GeoName")), econpro_list)
+```
+
+```{r}
+econ_profile <- merged_data %>%
+  rename(
+    Population = DataValue_2023_100,
+    `PerCap personal income` = DataValue_2023_110,
+    `PerCap personal current transfer receipts` = DataValue_2023_130,
+    `PerCap income maintenance benefits` = DataValue_2023_140,
+    `PerCap unemployment insurance compensation` = DataValue_2023_150,
+    `PerCap retirement and other` = DataValue_2023_160,
+    `PerCap dividends interest and rent` = DataValue_2023_170,
+    `Employer contributions to social insurance` = DataValue_2023_202,
+    `Total employment` = DataValue_2023_240,
+    `WageSalary employment` = DataValue_2023_250,
+    `Average wages and salaries` = DataValue_2023_300
+  )
+```
+
+```{r, message=FALSE, warning=FALSE}
+gdp_list <- list() 
+for (line_code in c(1,5)) {
+  gdptbl <- list(
+    'UserID' = 'F3AAE0AA-870B-4224-B205-C7CF600CB094',
+    'Method' = 'GetData',
+    'datasetname' = 'Regional',
+    'TableName' = 'SAGDP1',
+    'LineCode' = line_code,
+    'GeoFips' = 'STATE',
+    'Year' = '2023'
+  )
+  gdp_tbl <- beaGet(gdptbl)
+  gdp_tbl <- gdp_tbl %>%
+    select(GeoFips, GeoName, DataValue_2023) %>%
+    rename(!!paste0("DataValue_2023_", line_code) := DataValue_2023)
+  gdp_list[[as.character(line_code)]] <- gdp_tbl
+}
+gdp_data <- Reduce(function(x, y) full_join(x, y,
+          by = c("GeoFips", "GeoName")), gdp_list) 
+econ_tbl1 <- econ_profile %>%
+  left_join(gdp_data, by = c("GeoFips", "GeoName"))
+```
+
+```{r, message=FALSE, warning=FALSE}
+pce_list <- list() 
+for (line_code in c(1,16,18)) {
+  pcetbl <- list(
+    'UserID' = 'F3AAE0AA-870B-4224-B205-C7CF600CB094',
+    'Method' = 'GetData',
+    'datasetname' = 'Regional',
+    'TableName' = 'SAPCE2',
+    'LineCode' = line_code,
+    'GeoFips' = 'STATE',
+    'Year' = '2023'
+  )
+  pce_tbl <- beaGet(pcetbl)
+  pce_tbl <- pce_tbl %>%
+    select(GeoFips, GeoName, DataValue_2023) %>%
+    rename(!!paste0("DataValue_2023_", line_code) := DataValue_2023)
+  pce_list[[as.character(line_code)]] <- pce_tbl
+}
+pce_data <- Reduce(function(x, y) full_join(x, y, by = c("GeoFips", "GeoName"))
+          , pce_list)
+econ_tbl2 <- econ_tbl1 %>%
+  left_join(pce_data, by = c("GeoFips", "GeoName"))
+```
+
+```{r}
+econ_tbl2 <- econ_tbl2 %>%
+  rename(
+    `Real GDP` = DataValue_2023_1.x,
+    `Gross operating surplus` = DataValue_2023_5,
+    `PerCap PCE` = DataValue_2023_1.y,
+    `PerCap healthcare expenditures` = DataValue_2023_16,
+    `PerCap recreation expenditures` = DataValue_2023_18
+  )
+```
+
+```{r}
+econ_tbl <- econ_tbl2 %>%
+  mutate(
+    `Employment PerThousand` = (`Total employment` / `Population`)*1000,
+    `WageSalary Employment PerThousand` = 
+      (`WageSalary employment`/`Population`)*1000,
+    `PerCap Real GDP` =  (`Real GDP` /`Population`)*1000000,
+    `PerCap gross operating surplus` = 
+      (`Gross operating surplus` /`Population`)*1000000
+  )
+econ_tb<-econ_tbl[-1, ]
+```
+
+```{r, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(sf)
+library(usmap)
+library(tidyverse)
+states_geo <- us_map(regions = "states")
+```
+
+```{r}
+not_in_full <- setdiff(econ_tb$GeoName, states_geo$full)
+not_in_geo <- setdiff(states_geo$full, econ_tb$GeoName)
+not_in_full
+not_in_geo
+to_remove <- c("New England", "Mideast", "Great Lakes", 
+               "Plains", "Southeast", "Southwest", 
+               "Rocky Mountain", "Far West","District of Columbia")
+to_remove2 <- c("District of Columbia")
+econ_tb <- econ_tb %>% filter(!GeoName %in% to_remove)
+states_geo <- states_geo %>% filter(!full %in% to_remove2)
+```
+
+### Summary of Several Numerical Variables
+
+Based on the numerical variables collected, we organized them in the table displayed as below to explore the min, max, sd, etc.
+
+```{r, results = "asis"}
+library(psych)
+library(knitr)
+library(ggplot2)
+library(dplyr)
+library(kableExtra)
+summary_table <- describe(econ_tb)[, c("mean","median", "min", "max", "sd")]
+kable(summary_table, caption = "Summary of Numerical Variables") %>%
+  kable_styling(full_width = FALSE, position = "center", font_size = 7.5)
+```
+
+## Exploratory Data Analysis: Description and Visualization
+
+Through data cleaning, transformation, and statistical analysis, we explored the relationships among these indicators and examined the role of geographic proximity in shaping economic disparities.
+
+After merging the relevant BEA tables and creating a clean dataset, we first conducted descriptive analysis to explore the key variables. Using the usmap package, we visualized the geographic distribution of these five indicators.
+
+### Distribution
+
+We used the geographical boundary data of 50 states from the usmap. package and our merged dataset to illustrate the geographic distribution of five key economic variables. The colors range from dark to light, representing the values of each economic indicator from low to high across the states.
+
+```{r, out.width="78%", fig.align="center"}
+
+map_data <- left_join(states_geo, econ_tb, by = c("full" = "GeoName"))
+ggplot(map_data) +
+  geom_sf(aes(fill = `PerCap personal income`), color = "white", size = 0.2) +
+  scale_fill_viridis_c(option = "D", name = "PerCap Personl Income") +
+  theme_minimal() +
+  labs(title = "US States PerCapita Personal Income Map")+
+  theme(
+    plot.title = element_text(size = 10),  
+    legend.title = element_text(size = 8),  
+    legend.text = element_text(size = 7),
+    axis.text.x = element_text(size = 8), 
+    axis.text.y = element_text(size = 8)   
+  )
+```
+
+```{r, out.width="78%", fig.align="center"}
+ggplot(map_data) +
+  geom_sf(aes(fill = `PerCap Real GDP`), color = "white", size = 0.2) +
+  scale_fill_viridis_c(option = "C", name = "PerCap Real GDP",
+  limits = c(40000, 92000)) +theme_minimal() +
+  labs(title = "US States PerCapita Real GDP")+
+  theme(
+    plot.title = element_text(size = 10),  
+    legend.title = element_text(size = 8),  
+    legend.text = element_text(size = 7),
+    axis.text.x = element_text(size = 8), 
+    axis.text.y = element_text(size = 8)   
+  )
+```
+
+```{r,  fig.align="center"}
+ggplot(map_data) +
+  geom_sf(aes(fill = `PerCap PCE`), color = "white", size = 0.2) +
+  scale_fill_viridis_c(option = "E", name = "PerCap Personal Consumption 
+  Expenditures",limits = c(41000, 70000)) + theme_minimal() +
+  labs(title = "US States PerCap Personal Consumption Expenditures")+
+  theme(
+    plot.title = element_text(size = 10),  
+    legend.title = element_text(size = 8),  
+    legend.text = element_text(size = 7),
+    axis.text.x = element_text(size = 8), 
+    axis.text.y = element_text(size = 8)   
+  )
+```
+
+```{r, fig.align="center"}
+ggplot(map_data) +
+  geom_sf(aes(fill = `Employment PerThousand`), color = "white", size = 0.2) +
+  scale_fill_viridis_c(option = "B", 
+  name = "PerCap Employment PerThousand",limits = c(500, 780)) +
+  theme_minimal() +
+  labs(title = "US States Employment PerThousand")+
+  theme(
+    plot.title = element_text(size = 10),  
+    legend.title = element_text(size = 8),  
+    legend.text = element_text(size = 7),
+    axis.text.x = element_text(size = 8), 
+    axis.text.y = element_text(size = 8) 
+  )
+```
+
+```{r, out.width="99%", fig.align="center"}
+ggplot(map_data) +
+  geom_sf(aes(fill = `PerCap gross operating surplus`), color = "white", 
+  size = 0.2) +scale_fill_viridis_c(option = "G", 
+  name = "PerCap Gross Operating Surplus",
+  limits = c(21000, 50000)) + theme_minimal() +
+  labs(title = "US States PerCap Gross Operating Surplus")+
+  theme(
+    plot.title = element_text(size = 10),  
+    legend.title = element_text(size = 8),  
+    legend.text = element_text(size = 7),
+    axis.text.x = element_text(size = 8), 
+    axis.text.y = element_text(size = 8) 
+  )
+```
+
+```{r}
+mod1 <- lm(`PerCap personal income` ~ `PerCap Real GDP` + `PerCap PCE` + 
+            `Employment PerThousand` + `PerCap gross operating surplus`, 
+           data = econ_tb)
+summary(mod1)
+mod2 <- lm(`PerCap PCE` ~ `PerCap Real GDP`, data = econ_tb)
+mod3 <- lm(`PerCap personal income` ~ `Employment PerThousand`, data = econ_tb)
+library(gridExtra)
+```
+
+\newpage
+
+### Multiple Linear Model
+
+In addition, we employed a multiple linear model to examine the potential effects of various economic indicators - `PerCap Real GDP`, `PerCap PCE`, `Employment PerThousand`, and `PerCap grows operating surplus` - on `PerCap personal income`. As shown in the table, `PerCap Real GDP`, `PerCap PCE`, and `Employment PerThousand` have statistically significant effects on `PerCap personal income`. Specifically, for every one-unit increase in `PerCap real GDP`, the `PerCap personal income` is expected to increase by 0.433 units, while holding other variables constant ($p$\<.05). Similarly, for every one-unit increase in `PerCap PCE`, `PerCap personal income` is expected to increase by 0.632 units, while holding other variables constant ($p$\<.001), highlighting a strong positive relationship. For every one-unit increase in `Employment PerThousand`, `PerCap personal income` is expected to increase by 40.681 units ($p$\<.05), indicating a statistically significant relationship. Unexpectedly, `PerCap gross operating surplus` does not show a significant effect on `PerCap personal income` ($p$=ns).
+
+```{r}
+library(broom)
+library(kableExtra)
+tidy_model <- broom::tidy(mod1)
+tidy_model <- tidy_model %>%
+  mutate(Significance = case_when(
+    p.value < 0.001 ~ "***",
+    p.value < 0.01  ~ "**",
+    p.value < 0.05  ~ "*",
+    TRUE            ~ ""
+ )) %>%
+  mutate(term = gsub('`', '', term))
+```
+
+````{=tex}
+\begin{table}[H]
+```{r, out.width="50%",results="mark up"}
+tidy_model %>%
+  kable("latex", 
+        digits = 3, 
+        col.names = c("Term", "Estimate", "Std. Error", "t-value", "p-value", "Significance"),
+        caption = "MLR: Economic Indicators Affecting PerCap Personal Income") %>%
+  kable_styling(latex_options = c("striped", "hover","footnote")) 
+```
+\end{table}
+````
+
+### Simple Linear Model
+
+To investigate possible association between two specific variables, we created a couple of simple linear models. In the first model, we used `PerCap Real GDP` as the predictor and `PerCap PCE` as the response variable. The corresponding scatter plot features a red trend line, which suggests a linear relationship between these two variables. In effect, it shows a positive correlation between `PerCap Real GDP` and `PerCap PCE`. As `PerCap Real GDP` increases, `PerCap PCE` tends to increase. The blue dots are scattered around the trend line, indicating some variability in the data. As such, this visualization can be used to understand how economic growth (measured by Real GDP) impacts consumer expanding behaviors (measured by PCE) on a per capita basis.
+
+```{r, out.width="42%", fig.align="center"}
+ggplot(econ_tb, aes(x = `PerCap Real GDP`, y = `PerCap PCE`)) +
+  geom_point(color = "blue") +  
+  geom_smooth(method = "lm", color = "red") +  
+  labs(title = "PerCap PCE vs PerCap Real GDP", 
+       x = "PerCap Real GDP", 
+       y = "PerCap PCE") +
+  theme_minimal()+theme(plot.title = element_text(size = 12))
+```
+
+The second simple linear regression model was conducted to examine the relationship between `Employment PerThousand` and `PerCap personal income`. In the scatter plot, green dots represent individual data points, with each point corresponding to an observation where `Employment PerThousand` is plotted against `PerCap personal income`. The red line illustrates the fitted regression line, inferring a positive trend between these two variables. This indicates that as `PerCap personal Income` increases, `Employment Per Thousand` tends to increase as well. The gray shaded area around the regression (red) line represents the confidence interval, providing the range within which the true relationship between the variables is likely to lie with a certain level of confidence (95%). Despite the positive trend, the dispersion of data points around the line suggests that additional factors may also influence employment levels, indicating variability that could not be fully explained by `PerCap Personal Income` alone.
+
+```{r, out.width="42%", fig.align="center"}
+ggplot(econ_tb, aes(x = `PerCap personal income`,
+  y = `Employment PerThousand`)) + geom_point(color = "green") +  
+  geom_smooth(method = "lm", color = "red") +  
+  labs(title = "Employment PerThousand vs PerCap Personal Income", 
+       x = "PerCap Personal Income", 
+       y = "Employment PerThousand") +
+  theme_minimal()+theme(plot.title = element_text(size = 12))
+```
+
+```{r}
+econ_cluster <- econ_tb %>%
+  select(`PerCap personal income`, `PerCap Real GDP`, `PerCap PCE`, 
+         `Employment PerThousand`)%>%
+  mutate_all(scale)
+```
+
+### Clustering - Dendrogram
+
+Moreover, we present a visualization of clusterings via Dendrogram and a Clustered States Map. The dendrogram employs Ward's method for clustering, illustrating the hierarchical clustering of the U.S. states based on various economic indicators. Our hierarchical clustering is based on the following four variables: `PerCap personal income`, `PerCap Real GDP`, `PerCap PCE`, and `Employment PerThousand`. States are grouped into clusters, and highlighted by red boxes. Then, six primary clusters are identified.
+
+```{r, out.width="69%", fig.align="center"}
+hclust_d <- dist(econ_cluster)
+hc_ward <-  hclust(hclust_d, method = "ward.D2")
+plot(hc_ward, main = "Ward", xlab = "", sub = "",cex=0.6)
+rect.hclust(hc_ward, 
+            k = 6, 
+            border = "red")
+cutree(hc_ward, 6)
+```
+
+```{r}
+map_data <- map_data %>%
+  mutate(cluster = cutree(hc_ward, 6))
+```
+
+### Clustering - Clustered States Map
+
+Based on the six primary clusters, we created a 6-color choropleth map. This map visualizes how states with similar conditions are geographically distributed, colored by their respective clusters that are numbered from 1 to 6. States within the same cluster are often geographically proximate, suggesting regional economic similarities and disparities.
+
+```{r, out.width="65%", fig.align="center"}
+ggplot(map_data) +
+  geom_sf(aes(fill = factor(cluster)), color = "white", size = 0.2) +
+  scale_fill_manual(values = c("#B3CDE0", "#FBB4B9", "#CCEBC5", "#F6D02F", 
+                               "#FF9B85", "#D6AEDD"), name = "Cluster") +  
+  labs(title = "Clustered States Map Based on Economic Indicators") +
+  theme_minimal()
+```
+
+## Discussion and Conclusion
+
+In this project, we aim to investigate economic disparities among the U.S. states in 2023 using data from the Bureau of Economic Analysis (BEA) Regional Dataset. Our analysis focuses on five key economic indicators: `PerCap Personal Income`, `PerCap Real GDP`, `PerCap Gross Operating Surplus`, `PerCap PCE`, and `Employment PerThousand`. \newline
+
+Our analysis revealed several important insights. First, economic disparities among the U.S. states are not random but follow clear geographical patterns. Economic indicators such as `PerCap Real GDP`, `PerCap PCE`, and `PerCap Personal Income` are consistently higher in certain regions, such as the Northeast and the West, while being lower in parts of the Southeast. Second, `PerCap Real GDP`, `PerCap PCE`, and `Emplyment PerThousand` significantly affect `PerCap Personal Income`, providing further insight into the drivers of economic disparities. Third, production (as measured by GDP) has a strong positive relationship with PCE, highlighting the role of economic growth in driving consumer activity. Last, geographical proximity appears to be a significant factor in economic disparity, as neighboring states tend to exhibit similar levels of economic development, possibly due to shared infrastructure, industry linkages, and trade relationships.\newline
+
+Unexpectedly, `PerCap gross operating surplus` does not show a significant effect on `PerCap personal income`. This lack of significance reminds us that while gross operating surplus may contribute to overall economic production, it does not directly translate into higher personal incomes on a per capita basis.The distribution of surplus within businesses, reinvestment into capital, or variations in business structures across different states could be the possible factors. It highlights the complexity of economic dynamics and the multifaceted nature of economic disparities, suggesting that other factors that were not included in the analysis might be more or less directly relevant to personal income levels.\newline
+
+Noticeably, the resulting choropleth maps revealed clear regional patterns. States in the Northeast and the West generally exhibited higher `PerCap PersonalIncome` and `PerCap Real GDP`, while certain southern and central states showed relatively lower values. This visualization highlighted the clustering of states with similar economic characteristics, which provided the foundation for further statistical analysis.\newline
+
+However, some limitations should be noted. The observational nature of the data limits our ability to draw causal inferences. Additionally, the clustering approach relies on the choice of distance metrics and clustering methods, which could influence the final grouping of states. While Ward’s method provided useful insights, alternative methods could produce slightly different results. Furthermore, unobserved variables not included in the dataset, such as industry composition or policy differences, may also contribute to the observed disparities.\newline
+
+In conclusion, this study provides a comprehensive examination of economic disparities among U.S. states in 2023. Our findings reveal that economic indicators such as `PerCap Real GDP`, `PerCap PCE`, and `PerCap Personal Income` exhibit clear geographic patterns, with clustering effects that align with regional proximity. The positive relationship between GDP and PCE highlights the role of production in driving personal consumption, while clustering analysis underscores the significance of shared regional economic conditions. These results provide a foundation for further exploration of the factors driving regional economic disparities and suggest that policymakers should consider the role of geographic proximity and regional interdependence when designing economic policy.
